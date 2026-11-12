@@ -228,6 +228,17 @@ button.chip:hover{background:var(--paper)}
 .dk .mine{margin:0}
 .primary.sm{padding:9px 14px}
 
+/* tài khoản */
+.acct{margin-top:auto;display:grid;gap:8px;padding-top:14px;border-top:1px solid var(--line);min-width:0}
+.gbtn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;min-height:46px;border-radius:14px;border:1px solid var(--line);background:var(--bg);color:var(--ink);font-weight:700;font-size:14px}
+.gbtn:hover{background:var(--hover)}
+.who{display:flex;align-items:center;gap:10px;min-width:0;flex-wrap:wrap}
+.av{width:38px;height:38px;border-radius:50%;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;font-weight:800;flex:none}
+.wt{display:flex;flex-direction:column;min-width:0;flex:1 1 90px;line-height:1.25}
+.wt b{font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wt small{color:var(--muted);font-size:12px}
+.note{margin:0;font-size:12.5px;color:var(--muted)}
+.note:empty{display:none}
 /* quiz */
 .quiz{grid-column:1 / -1;background:var(--stage);color:var(--stage-ink);border-radius:36px;padding:28px;position:relative;overflow:hidden;min-width:0;transition:background .4s}
 .quiz::before{content:"";position:absolute;right:-110px;top:-120px;width:320px;height:320px;border-radius:50%;background:rgba(255,255,255,.22);pointer-events:none}
@@ -334,6 +345,15 @@ button.chip:hover{background:var(--paper)}
           <svg class="ico" viewBox="0 0 24 24"><path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/></svg>Thống kê
         </button>
       </div>
+    </div>
+    <div class="acct" id="acct" hidden>
+      <button class="gbtn" id="signIn" type="button"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>Đăng nhập bằng Google</button>
+      <div class="who" id="who" hidden>
+        <span class="av" id="av" aria-hidden="true"></span>
+        <span class="wt"><b id="wname"></b><small id="wstat"></small></span>
+        <button class="danger" id="signOut" type="button">Đăng xuất</button>
+      </div>
+      <p class="note" id="anote" role="status"></p>
     </div>
   </aside>
 
@@ -513,7 +533,7 @@ button.chip:hover{background:var(--paper)}
       return {w:c.w,ipa:c.ipa||'',pos:c.pos||'',vi:c.vi||'',ex:c.ex||'',syn:c.syn||'',ant:c.ant||'',custom:true,d:c.d};
     }));
   }
-  function save(){try{localStorage.setItem(KEY,JSON.stringify(S));}catch(e){}}
+  function save(){try{localStorage.setItem(KEY,JSON.stringify(S));}catch(e){}schedulePush();}
 
   var $=function(id){return document.getElementById(id)};
   var front=$('front'),back=$('back'),flipper=$('flipper'),stage=$('stage');
@@ -681,6 +701,90 @@ button.chip:hover{background:var(--paper)}
     hits=hits.slice(0,6);
     ul.innerHTML=hits.length?hits.map(function(i){return '<li><button type="button" data-w="'+i+'"><span class="rw">'+esc(WORDS[i].w)+'</span><span class="rv">'+esc(WORDS[i].vi)+'</span></button></li>'}).join(''):'<li class="none">Không có từ phù hợp trong bộ mẫu.</li>';
     ul.hidden=false;
+  }
+
+  /* Đăng nhập Google + đồng bộ (Supabase). Để trống 2 giá trị dưới đây thì trang chạy như cũ, không có đăng nhập. */
+  var CLOUD={url:'https://oiqxdgpaetegvlhlball.supabase.co',key:'sb_publishable_XuATsgZt_iCgWCRiQSfEYg_HGz7gBot'};
+  var PREFS=['accent','front','ipa','ex','syn','auto','shuffle','color','zoom','theme','sound','quizScope','quizDir','addDeck','filter'];
+  var sb=null,user=null,pushT=null;
+  function setStatus(t){var e=$('wstat');if(e)e.textContent=t;}
+  function payload(){var pr={};PREFS.forEach(function(k){pr[k]=S[k]});return {ratings:S.ratings,custom:S.custom,decks:S.decks,prefs:pr};}
+  function pushNow(){
+    if(!sb||!user)return Promise.resolve();
+    setStatus('Đang lưu...');
+    return sb.from('user_data').upsert({user_id:user.id,data:payload(),updated_at:new Date().toISOString()}).then(function(r){
+      setStatus(r.error?'Lỗi lưu: '+r.error.message:'Đã đồng bộ');
+    },function(){setStatus('Lỗi mạng, chưa lưu được');});
+  }
+  function schedulePush(){if(!sb||!user)return;clearTimeout(pushT);pushT=setTimeout(pushNow,1500);}
+  function mergeIn(d){
+    var cDecks=(Array.isArray(d.decks)?d.decks:[]).filter(function(x){return x&&x.id&&x.name});
+    var cCustom=(Array.isArray(d.custom)?d.custom:[]).filter(function(c){return c&&typeof c.w==='string'&&c.w});
+    var byName={},ids={},remap={};
+    cDecks.forEach(function(x){byName[x.name.toLowerCase()]=x;ids[x.id]=1;});
+    S.decks.forEach(function(x){
+      var k=x.name.toLowerCase();
+      if(byName[k]){remap[x.id]=byName[k].id;}
+      else{var nid=ids[x.id]?newId():x.id;ids[nid]=1;var nx={id:nid,name:x.name};cDecks.push(nx);byName[k]=nx;remap[x.id]=nid;}
+    });
+    var seen={};cCustom.forEach(function(c){seen[c.w.toLowerCase()]=1});
+    S.custom.forEach(function(c){
+      var k=c.w.toLowerCase();if(seen[k])return;seen[k]=1;
+      var n={};for(var f in c)n[f]=c[f];n.d=remap[c.d]||c.d;cCustom.push(n);
+    });
+    var ratings={},f2;
+    for(f2 in S.ratings)ratings[f2]=S.ratings[f2];
+    for(f2 in (d.ratings||{}))ratings[f2]=d.ratings[f2];
+    if(d.prefs)PREFS.forEach(function(k){if(k in d.prefs)S[k]=d.prefs[k]});
+    S.decks=cDecks;S.custom=cCustom;S.ratings=ratings;
+  }
+  function refreshAll(){
+    rebuild();if(S.shuffle)S.order=shuffleOrder();S.idx=0;S.flipped=false;
+    if(S.theme)document.documentElement.setAttribute('data-theme',S.theme);
+    buildFilter();syncPanel();renderCard();renderMeta();renderMine();
+    if(S.panel==='quiz')startQuiz();
+  }
+  function pullAndMerge(){
+    setStatus('Đang đồng bộ...');
+    sb.from('user_data').select('data').eq('user_id',user.id).maybeSingle().then(function(r){
+      if(r.error){setStatus('Lỗi đồng bộ: '+r.error.message);return;}
+      if(r.data&&r.data.data){mergeIn(r.data.data);refreshAll();}
+      save();
+      setStatus('Đã tải dữ liệu');
+    },function(){setStatus('Lỗi mạng, chưa đồng bộ được');});
+  }
+  function renderAcct(){
+    $('signIn').hidden=!!user;$('who').hidden=!user;
+    if(user){
+      var m=user.user_metadata||{},nm=m.full_name||m.name||user.email||'Tài khoản';
+      $('wname').textContent=nm;$('av').textContent=(nm.trim().charAt(0)||'?').toUpperCase();
+    }
+  }
+  function initCloud(){
+    if(!CLOUD.url||!CLOUD.key)return;
+    $('acct').hidden=false;
+    $('signIn').addEventListener('click',function(){
+      if(!sb)return;
+      sb.auth.signInWithOAuth({provider:'google',options:{redirectTo:location.origin+location.pathname}}).then(function(r){
+        if(r&&r.error)$('anote').textContent='Không đăng nhập được: '+r.error.message;
+      });
+    });
+    $('signOut').addEventListener('click',function(){if(sb)sb.auth.signOut();});
+    var sc=document.createElement('script');
+    sc.src='https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.110.1/dist/umd/supabase.js';
+    sc.onload=function(){
+      try{sb=window.supabase.createClient(CLOUD.url,CLOUD.key);}catch(e){$('anote').textContent='Cấu hình đăng nhập chưa đúng.';return;}
+      sb.auth.onAuthStateChange(function(ev,session){
+        var u=(session&&session.user)||null;
+        setTimeout(function(){
+          if(u&&(!user||user.id!==u.id)){user=u;renderAcct();pullAndMerge();}
+          else if(!u&&user){user=null;renderAcct();}
+          else if(!u)renderAcct();
+        },0);
+      });
+    };
+    sc.onerror=function(){$('anote').textContent='Không tải được dịch vụ đăng nhập. Dữ liệu vẫn lưu trên máy này.';};
+    document.head.appendChild(sc);
   }
 
   /* Quiz */
@@ -945,7 +1049,7 @@ button.chip:hover{background:var(--paper)}
   if(S.shuffle&&S.order.length!==WORDS.length)S.order=shuffleOrder();
   if(S.theme)document.documentElement.setAttribute('data-theme',S.theme);
   buildFilter();buildRates();syncPanel();
-  renderCard();renderMeta();renderMine();wire();
+  renderCard();renderMeta();renderMine();wire();initCloud();
   try{if('speechSynthesis' in window)speechSynthesis.getVoices();}catch(e){}
 })();
 </script>
